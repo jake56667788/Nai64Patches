@@ -12,3 +12,7 @@ patches {
         license = "GPL-3.0"
     }
 }
+
+dependencies {
+    implementation(libs.gson)
+}
