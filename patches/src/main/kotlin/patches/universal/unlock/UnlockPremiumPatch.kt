@@ -39,18 +39,18 @@ val unlockPremiumPatch = bytecodePatch(
             "premium", "is_premium", "ispremium", "premium_unlocked", "premium_status", "premium_expiry", "premiumaccess", "haspremiumaccess",
             "vip", "is_vip", "vip_status", "vip_level", "vip_expiry",
             "no_ads", "noads", "ads_removed", "adsremoved", "ad_free", "adfree", "remove_ads", "removeads",
-            "full_version", "fullversion", "unlocked", "isSuspended",
+            "full_version", "fullversion", "unlocked",
             "subscribed", "is_subscribed", "subscription_active", "subscription_expires", "has_subscription", "has_active_purchase",
             "lifetime", "is_lifetime", "annual", "monthly", "trial",
             "entitlement", "entitlements", "is_entitled", "has_entitlement",
             "paid", "is_paid", "member", "pro_version", "is_pro", "pro_member",
             "subscription_expiry", "premium_expiry", "key_subs", "key_sub", "subs"
         )
-        isSuspendedfun isPremiumKey(lower: String): Boolean {
+        fun isPremiumKey(lower: String): Boolean {
             if (extraSet.any { it.isNotEmpty() && lower == it }) return true
-            // "ignore/disregard X" flags mean "disregard the premium state":
+            // "ignore/disregard/suspend" flags mean "disregard the premium state":
             // forcing those true inverts them (locks instead of unlocking)
-            if (lower.contains("ignore") || lower.contains("disregard")) return false
+            if (lower.contains("ignore") || lower.contains("disregard") || lower.contains("suspend")) return false
             for (k in premiumSubstrings) {
                 if (lower.contains(k)) {
                     // guard generic "pro" inside provider/product
@@ -123,7 +123,7 @@ val unlockPremiumPatch = bytecodePatch(
             ) { it.addInstructions(0, "const/4 v0, 0x1\nreturn v0") }
         }
 
-        for (negName in listOf("isExpired", "isCancelled", "isTrialExpired", "isLocked", "isPremiumLocked", "isContentLocked", "isHardPaywall")) {
+        for (negName in listOf("isExpired", "isCancelled", "isTrialExpired", "isLocked", "isPremiumLocked", "isContentLocked", "isHardPaywall", "isSuspended", "isPremiumSuspended")) {
             patchAll(Fingerprint(name = negName, returnType = "Z", custom = { _, c ->
                 val t = c.type.lowercase()
                 t.contains("premium") || t.contains("subscription") || t.contains("entitle") || t.contains("vip") || t.contains("billing") || t.contains("purchase") || t.contains("content") || t.contains("station") || t.contains("paywall")
@@ -260,7 +260,7 @@ val unlockPremiumPatch = bytecodePatch(
                 const-string v4, "1"
                 invoke-interface {v3, v4}, Lcom/facebook/react/bridge/WritableArray;->pushString(Ljava/lang/String;)V
                 invoke-interface {v2, v3}, Lcom/facebook/react/bridge/WritableArray;->pushArray(Lcom/facebook/react/bridge/ReadableArray;)V
-                const/4 v3, 0x2
+                const/4 v3, 0{2}
                 new-array v3, v3, [Ljava/lang/Object;
                 const/4 v4, 0x0
                 const/4 v5, 0x0
@@ -276,9 +276,6 @@ val unlockPremiumPatch = bytecodePatch(
 
         // ──────────────────────────────────────────────
         // 1d) RevenueCat (merged from Unlock RevenueCat Entitlements).
-        // isActive -> true covers synced infos; the EntitlementInfos.get
-        // fake covers empty maps (fresh accounts) by returning a
-        // constructed active EntitlementInfo for whatever id the app asks.
         // ──────────────────────────────────────────────
 
         patchAll(
@@ -290,7 +287,6 @@ val unlockPremiumPatch = bytecodePatch(
             ), "RC:isActive"
         ) { it.addInstructions(0, "const/4 v0, 0x1\nreturn v0") }
 
-        // Generic RevenueCat fallback: any isActive/isEntitled/hasActive in com/revenuecat that returns Z -> true
         classDefForEach { classDef ->
             val tl = classDef.type.lowercase()
             if (!tl.contains("revenuecat") && !tl.contains("purchases")) return@classDefForEach
@@ -312,7 +308,6 @@ val unlockPremiumPatch = bytecodePatch(
             }
         }
 
-        // Signature verification mode: force verify Z-methods true to avoid Enforced failure
         classDefForEach { classDef ->
             val tl = classDef.type.lowercase()
             if (!tl.contains("revenuecat") || !tl.contains("verification")) return@classDefForEach
@@ -330,402 +325,6 @@ val unlockPremiumPatch = bytecodePatch(
                     } catch (_: Exception) {}
                 }
             }
-        }
-
-        // EntitlementInfos.get(id) -> constructed active EntitlementInfo.
-        // Constructor resolved at patch time (shortest <init>, args mapped
-        // by type: first String = queried id, Z = true, Date = now, else null).
-        try {
-            val rcGetFp = Fingerprint(
-                definingClass = "Lcom/revenuecat/purchases/EntitlementInfos;",
-                name = "get",
-                returnType = "Lcom/revenuecat/purchases/EntitlementInfo;",
-                custom = { m, _ -> m.parameterTypes == listOf("Ljava/lang/String;") }
-            )
-            val rcGet = try { rcGetFp.methodOrNull } catch (_: Exception) { null }
-            val rcOwner = try { rcGetFp.classDefOrNull } catch (_: Exception) { null }
-            val rcInfoClass = try { mutableClassDefByOrNull("Lcom/revenuecat/purchases/EntitlementInfo;") } catch (_: Exception) { null }
-            if (rcGet?.implementation != null && rcOwner != null && rcInfoClass != null) {
-                val ctor = rcInfoClass.methods.filter { it.name == "<init>" }.minByOrNull { it.parameterTypes.size }
-                // Kotlin ctors null-check reference params (getClass() calls), so every
-                // object arg must be non-null: empty strings, real enum constants
-                // (verified below), fresh dates, blank JSON object.
-                val hasNormal = try {
-                    mutableClassDefByOrNull("Lcom/revenuecat/purchases/PeriodType;")
-                        ?.fields?.any { it.name == "NORMAL" } == true &&
-                    mutableClassDefByOrNull("Lcom/revenuecat/purchases/Store;")
-                        ?.fields?.any { it.name == "PLAY_STORE" } == true &&
-                    mutableClassDefByOrNull("Lcom/revenuecat/purchases/OwnershipType;")
-                        ?.fields?.any { it.name == "PURCHASED" } == true
-                } catch (_: Exception) { false }
-                if (ctor != null && hasNormal) {
-                    val params = ctor.parameterTypes
-                    val sb = StringBuilder()
-                    sb.appendLine("new-instance v0, Lcom/revenuecat/purchases/EntitlementInfo;")
-                    var reg = 1
-                    var idUsed = false
-                    val argRegs = mutableListOf<Int>()
-                    for (pt in params) {
-                        argRegs.add(reg)
-                        when {
-                            pt == "Ljava/lang/String;" && !idUsed -> {
-                                // from16: params were shifted to high regs by the clone
-                                sb.appendLine("move-object/from16 v$reg, p1")
-                                idUsed = true
-                            }
-                            pt == "Ljava/lang/String;" -> sb.appendLine("const-string v$reg, \"\"")
-                            pt == "Z" -> sb.appendLine("const/4 v$reg, 0x1")
-                            pt == "Ljava/util/Date;" -> {
-                                sb.appendLine("new-instance v$reg, Ljava/util/Date;")
-                                sb.appendLine("invoke-direct {v$reg}, Ljava/util/Date;-><init>()V")
-                            }
-                            pt == "Lcom/revenuecat/purchases/PeriodType;" ->
-                                sb.appendLine("sget-object v$reg, Lcom/revenuecat/purchases/PeriodType;->NORMAL:Lcom/revenuecat/purchases/PeriodType;")
-                            pt == "Lcom/revenuecat/purchases/Store;" ->
-                                sb.appendLine("sget-object v$reg, Lcom/revenuecat/purchases/Store;->PLAY_STORE:Lcom/revenuecat/purchases/Store;")
-                            pt == "Lcom/revenuecat/purchases/OwnershipType;" ->
-                                sb.appendLine("sget-object v$reg, Lcom/revenuecat/purchases/OwnershipType;->PURCHASED:Lcom/revenuecat/purchases/OwnershipType;")
-                            pt == "Lorg/json/JSONObject;" -> {
-                                sb.appendLine("new-instance v$reg, Lorg/json/JSONObject;")
-                                sb.appendLine("invoke-direct {v$reg}, Lorg/json/JSONObject;-><init>()V")
-                            }
-                            pt == "J" || pt == "D" -> sb.appendLine("const-wide v$reg, 0x0L")
-                            pt == "I" || pt == "S" || pt == "B" || pt == "C" || pt == "F" -> sb.appendLine("const/4 v$reg, 0x0")
-                            else -> sb.appendLine("const/4 v$reg, 0x0")
-                        }
-                        reg += if (pt == "J" || pt == "D") 2 else 1
-                    }
-                    val lastReg = reg - 1
-                    val paramDesc = params.joinToString("")
-                    sb.appendLine("invoke-direct/range {v0 .. v$lastReg}, Lcom/revenuecat/purchases/EntitlementInfo;-><init>($paramDesc)V")
-                    sb.appendLine("return-object v0")
-                    val cloned = rcGet.cloneMutable(additionalRegisters = lastReg + 1)
-                    val target = rcOwner.methods.firstOrNull {
-                        it.name == rcGet.name && it.parameterTypes == rcGet.parameterTypes && it.returnType == rcGet.returnType
-                    }
-                    if (target != null) {
-                        try {
-                            rcOwner.methods.remove(target)
-                        } catch (_: Exception) {}
-                        cloned.addInstructions(0, sb.toString().trimIndent())
-                        rcOwner.methods.add(cloned)
-                        patched++
-                        patchedMethods.add("RC:EntitlementInfos.get")
-                        logger.info("Faked RevenueCat EntitlementInfos.get with ${params.size}-arg constructor")
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            logger.warning("RevenueCat EntitlementInfos.get fake skipped: ${e.message}")
-        }
-
-        // ──────────────────────────────────────────────
-        // 1e) Two-state status enums (PremiumStatus-style).
-        // Any strict two-constant enum with an active/inactive name pair
-        // gets: no-arg methods returning the enum type -> ACTIVE constant,
-        // and getValue()I inside the enum -> ACTIVE constant's int field.
-        // Purely structural, no app/SDK names referenced.
-        // ──────────────────────────────────────────────
-
-        try {
-            val activeNames = setOf("active", "enabled", "premium", "pro", "unlocked", "valid", "licensed", "subscribed", "entitled", "paid")
-            val inactiveNames = setOf("not_active", "inactive", "notactive", "disabled", "free", "locked", "invalid", "unlicensed", "unsubscribed", "not_entitled", "expired")
-            val activeConst = mutableMapOf<String, String>()
-            val constIntField = mutableMapOf<String, String>()
-            classDefForEach { classDef ->
-                try {
-                    if (classDef.superclass != "Ljava/lang/Enum;") return@classDefForEach
-                    val consts = classDef.fields.filter { f ->
-                        f.type == classDef.type && !f.name.startsWith("$") && f.accessFlags and 0x8 != 0
-                    }
-                    if (consts.size != 2) return@classDefForEach
-                    val active = consts.firstOrNull { it.name.lowercase() in activeNames } ?: return@classDefForEach
-                    if (consts.none { it.name.lowercase() in inactiveNames }) return@classDefForEach
-                    activeConst[classDef.type] = active.name
-                    // int field backing getValue(): first IGET of an own-type I field
-                    outer@ for (m in classDef.methods) {
-                        if (m.name != "getValue" || m.returnType != "I") continue
-                        val impl = m.implementation ?: continue
-                        for (insn in impl.instructions) {
-                            val ref = (insn as? ReferenceInstruction)?.reference as? com.android.tools.smali.dexlib2.iface.reference.FieldReference ?: continue
-                            if (insn.opcode != Opcode.IGET) continue
-                            if (ref.definingClass == classDef.type && ref.type == "I") {
-                                constIntField[classDef.type] = ref.name
-                                break@outer
-                            }
-                        }
-                    }
-                    logger.info("Unlock Premium: two-state status enum ${classDef.type} active=${active.name}")
-                } catch (_: Exception) {}
-            }
-            if (activeConst.isNotEmpty()) {
-                classDefForEach { classDef ->
-                    val hasCandidate = classDef.methods.any { m ->
-                        m.parameterTypes.isEmpty() && (activeConst.containsKey(m.returnType) ||
-                            (m.name == "getValue" && m.returnType == "I" && activeConst.containsKey(classDef.type)))
-                    }
-                    if (!hasCandidate) return@classDefForEach
-                    val mutableClass by lazy { try { mutableClassDefBy(classDef) } catch (_: Exception) { null } }
-                    for (method in classDef.methods) {
-                        try {
-                            if (method.implementation == null || method.parameterTypes.isNotEmpty()) continue
-                            val ret = method.returnType
-                            val activeField = activeConst[ret]
-                            val mc = mutableClass ?: continue
-                            val mutableMethod = mc.findMutableMethodOf(method)
-                            if (activeField != null) {
-                                if (method.name == "values" || method.name == "valueOf" || method.name == "getEntries") continue
-                                mutableMethod.addInstructions(0, "sget-object v0, $ret->$activeField:$ret\nreturn-object v0")
-                                patched++
-                                patchedMethods.add("EnumStatus:${method.name}->$activeField")
-                            } else if (method.name == "getValue" && ret == "I" && activeConst.containsKey(classDef.type)) {
-                                val intField = constIntField[classDef.type] ?: continue
-                                val enumType = classDef.type
-                                val field = activeConst[enumType] ?: continue
-                                mutableMethod.addInstructions(0, "sget-object v0, $enumType->$field:$enumType\niget v0, v0, $enumType->$intField:I\nreturn v0")
-                                patched++
-                                patchedMethods.add("EnumStatus:getValue->$field")
-                            }
-                        } catch (_: Exception) {}
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            logger.warning("Unlock Premium: two-state enum strategy skipped: ${e.message}")
-        }
-
-        // ──────────────────────────────────────────────
-        // 2) Single-pass classDefForEach: Prefs + generic premium fallback
-        // Merged from 3 passes -> 1 pass to save heap (was 6 scans via helpers)
-        // ──────────────────────────────────────────────
-
-        classDefForEach { classDef ->
-            val typeLower = classDef.type.lowercase()
-            // skip obvious non-premium SDKs early to avoid mutableClassDefBy
-            if (typeLower.contains("okhttp") || typeLower.contains("ssl") || typeLower.contains("network") || typeLower.contains("glide") || typeLower.contains("coil") && !typeLower.contains("premium") && !typeLower.contains("purchase")) {
-                // still need to check generic premium methods in premium classes, so don't return yet for those
-                if (!typeLower.contains("premium") && !typeLower.contains("billing") && !typeLower.contains("purchase") && !typeLower.contains("subscription") && !typeLower.contains("entitle")) {
-                    // quick check: does class contain any premium method name? if not, skip
-                    var hasPremiumMethod = false
-                    for (m in classDef.methods) {
-                        val n = m.name.lowercase()
-                        if (n.contains("premium") || n.contains("haspremium") || n.contains("ispremium") || n.contains("entitle") || n.contains("haspro") || n.contains("ispro")) {
-                            hasPremiumMethod = true; break
-                        }
-                    }
-                    if (!hasPremiumMethod) {
-                        // also check if any method calls prefs - if not, skip
-                        var callsPrefs = false
-                        for (m in classDef.methods) {
-                            val impl = m.implementation ?: continue
-                            for (insn in impl.instructions) {
-                                val ref = (insn as? ReferenceInstruction)?.reference as? MethodReference ?: continue
-                                val def = ref.definingClass
-                                val isPrefs = def.contains("PlayerPrefs") || def == "Landroid/content/SharedPreferences;" || def.contains("DataStore") || def.contains("MMKV") || def.contains("Preferences")
-                                if (isPrefs && (ref.name == "getBoolean" || ref.name == "getInt" || ref.name == "getString" || ref.name == "contains" || ref.name == "getValue" || ref.name == "get")) {
-                                    callsPrefs = true; break
-                                }
-                            }
-                            if (callsPrefs) break
-                        }
-                        if (!callsPrefs) return@classDefForEach
-                    }
-                }
-            }
-
-            val mutableClass by lazy { try { mutableClassDefBy(classDef) } catch (_: Exception) { null } }
-
-            // 2a) Generic premium Z methods (hasPremiumAccess etc.) in this class
-            for (method in classDef.methods) {
-                if (method.returnType != "Z") continue
-                val n = method.name.lowercase()
-                if (n.length < 3 || n.length > 40) continue
-                if (n.contains("provider") || n.contains("product") || n.contains("progress") || n.contains("probableprime") || n.contains("providerenabled")) continue
-                val isPremiumName = n.contains("premium") || n.contains("haspremium") || n.contains("ispremium") || n.contains("entitle") || n.contains("haspro") || n.contains("ispro") || n.contains("hassubscription") || n.contains("issubscribed")
-                val isPremiumClass = typeLower.contains("premium") || typeLower.contains("billing") || typeLower.contains("purchase") || typeLower.contains("subscription") || typeLower.contains("entitle")
-                if (!isPremiumName && !isPremiumClass) continue
-                if (n == "ispro" || n == "haspro" || n == "isprouser" || n == "hasprouser" || n.contains("premium")) {
-                    try {
-                        if (method.implementation == null) continue
-                        val mc = mutableClass ?: continue
-                        mc.findMutableMethodOf(method).addInstructions(0, "const/4 v0, 0x1\nreturn v0")
-                        patched++
-                        patchedMethods.add("Generic:${method.name}")
-                    } catch (_: Exception) {}
-                }
-            }
-
-            // 2b) Prefs/DataStore getBoolean/getInt/contains -> premium keys
-            for (method in classDef.methods) {
-                val mutableMethod by lazy { mutableClass?.findMutableMethodOf(method) }
-                val impl = method.implementation ?: continue
-                val instructions = impl.instructions.toList()
-                for ((index, insn) in instructions.withIndex()) {
-                    val ref = (insn as? ReferenceInstruction)?.reference as? MethodReference ?: continue
-                    val mname = ref.name
-                    val def = ref.definingClass
-                    val isPlayerPrefs = def.contains("PlayerPrefs")
-                    val isSharedPrefs = def == "Landroid/content/SharedPreferences;"
-                    val isDataStore = def.contains("DataStore") || def.contains("MMKV") || def.contains("EncryptedSharedPreferences") || def.contains("Preferences")
-                    val isGetBoolean = (mname == "GetBoolean" || mname == "getBoolean" || mname == "getValue") && ref.returnType == "Z"
-                    val isGetInt = (mname == "GetInt" || mname == "getInt" || mname == "getValue") && ref.returnType == "I" && ref.parameterTypes.isNotEmpty() && ref.parameterTypes[0] == "Ljava/lang/String;"
-                    val isGetLong = (mname == "GetLong" || mname == "getLong") && ref.returnType == "J"
-                    val isGetString = (mname == "GetString" || mname == "getString" || mname == "getValue") && ref.returnType == "Ljava/lang/String;"
-                    val isHasKey = (mname == "HasKey" || mname == "contains" || mname == "containsKey" || mname == "hasKey") && ref.returnType == "Z"
-                    val isDataStoreGet = (mname == "get" && isDataStore && ref.parameterTypes.isNotEmpty() && ref.parameterTypes[0].contains("Key"))
-                    val isEditor = def == "Landroid/content/SharedPreferences\$Editor;"
-                    val isPutBoolean = isEditor && mname == "putBoolean" && ref.parameterTypes.size >= 2 && ref.parameterTypes[0] == "Ljava/lang/String;"
-                    val isPutString = isEditor && mname == "putString" && ref.parameterTypes.size >= 2 && ref.parameterTypes[0] == "Ljava/lang/String;"
-
-                    if (!isPlayerPrefs && !isSharedPrefs && !isDataStore && !isEditor) continue
-                    if (!isGetBoolean && !isGetInt && !isGetLong && !isGetString && !isHasKey && !isDataStoreGet && !isPutBoolean && !isPutString) continue
-
-                    val keyRegister = when (insn) {
-                        is com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction35c -> when (insn.registerCount) {
-                            1 -> insn.registerC
-                            2 -> insn.registerC
-                            else -> insn.registerD
-                        }
-                        is com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction3rc -> insn.startRegister + 1
-                        else -> continue
-                    }
-
-                    var keyValue: String? = null
-                    for (j in index - 1 downTo maxOf(0, index - 6)) {
-                        val prev = instructions[j]
-                        if (prev.opcode != Opcode.CONST_STRING) continue
-                        val reg = (prev as? com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction)?.registerA ?: continue
-                        if (reg != keyRegister) continue
-                        keyValue = ((prev as? ReferenceInstruction)?.reference as? StringReference)?.string
-                        break
-                    }
-                    if (keyValue == null) {
-                        for (j in index - 1 downTo maxOf(0, index - 8)) {
-                            val prev = instructions[j]
-                            if (prev.opcode != Opcode.CONST_STRING) continue
-                            val s = ((prev as? ReferenceInstruction)?.reference as? StringReference)?.string ?: continue
-                            if (isPremiumKey(s.lowercase())) { keyValue = s; break }
-                        }
-                    }
-                    if (keyValue == null || !isPremiumKey(keyValue!!.lowercase())) continue
-
-                    val next = instructions.getOrNull(index + 1) ?: continue
-                    val mm = mutableMethod ?: continue
-                    when {
-                        isGetBoolean && next.opcode == Opcode.MOVE_RESULT -> {
-                            val r = (next as com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction).registerA
-                            if (r <= 0xf) {
-                                mm.replaceInstruction(index, "const/4 v$r, 0x1")
-                                mm.replaceInstruction(index + 1, "nop")
-                            } else if (r <= 0xff) {
-                                mm.replaceInstruction(index, "const/16 v$r, 0x1")
-                                mm.replaceInstruction(index + 1, "nop")
-                            } else {
-                                mm.replaceInstruction(index, "const/4 v0, 0x1")
-                                mm.replaceInstruction(index + 1, "move v$r, v0")
-                            }
-                            patchedMethods.add("Prefs:${keyValue}:getBoolean")
-                            patched++
-                        }
-                        isHasKey && next.opcode == Opcode.MOVE_RESULT -> {
-                            val r = (next as com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction).registerA
-                            if (r <= 0xf) {
-                                mm.replaceInstruction(index, "const/4 v$r, 0x1")
-                                mm.replaceInstruction(index + 1, "nop")
-                            } else if (r <= 0xff) {
-                                mm.replaceInstruction(index, "const/16 v$r, 0x1")
-                                mm.replaceInstruction(index + 1, "nop")
-                            } else {
-                                mm.replaceInstruction(index, "const/4 v0, 0x1")
-                                mm.replaceInstruction(index + 1, "move v$r, v0")
-                            }
-                            patchedMethods.add("Prefs:${keyValue}:contains")
-                            patched++
-                        }
-                        isGetInt && next.opcode == Opcode.MOVE_RESULT -> {
-                            val r = (next as com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction).registerA
-                            if (r <= 0xf) {
-                                mm.replaceInstruction(index, "const/4 v$r, 0x1")
-                                mm.replaceInstruction(index + 1, "nop")
-                            } else if (r <= 0xff) {
-                                mm.replaceInstruction(index, "const/16 v$r, 0x1")
-                                mm.replaceInstruction(index + 1, "nop")
-                            } else {
-                                mm.replaceInstruction(index, "const/4 v0, 0x1")
-                                mm.replaceInstruction(index + 1, "move v$r, v0")
-                            }
-                            patchedMethods.add("Prefs:${keyValue}:getInt")
-                            patched++
-                        }
-                        isGetLong && next.opcode == Opcode.MOVE_RESULT_WIDE -> {
-                            val r = (next as com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction).registerA
-                            if (r <= 0xff) {
-                                mm.replaceInstruction(index, "const-wide/16 v$r, 0x1")
-                                mm.replaceInstruction(index + 1, "nop")
-                            } else {
-                                mm.replaceInstruction(index, "const-wide/16 v0, 0x1")
-                                mm.replaceInstruction(index + 1, "move-wide v$r, v0")
-                            }
-                            patchedMethods.add("Prefs:${keyValue}:getLong")
-                            patched++
-                        }
-                        isGetString && next.opcode == Opcode.MOVE_RESULT_OBJECT -> {
-                            val r = (next as com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction).registerA
-                            if (r <= 0xff) {
-                                mm.replaceInstruction(index, "const-string v$r, \"premium\"")
-                                mm.replaceInstruction(index + 1, "nop")
-                            } else if (r <= 0xffff) {
-                                mm.replaceInstruction(index, "const-string/jumbo v$r, \"premium\"")
-                                mm.replaceInstruction(index + 1, "nop")
-                            } else {
-                                mm.replaceInstruction(index, "const-string v0, \"premium\"")
-                                mm.replaceInstruction(index + 1, "move-object v$r, v0")
-                            }
-                            patchedMethods.add("Prefs:${keyValue}:getString")
-                            patched++
-                        }
-                        isPutBoolean -> {
-                            val valueReg: Int? = when (insn) {
-                                is com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction35c -> insn.registerE
-                                is com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction3rc -> insn.startRegister + 2
-                                else -> null
-                            }
-                            if (valueReg == null) continue
-                            try {
-                                mm.addInstructions(index, "const/4 v$valueReg, 0x1")
-                                patchedMethods.add("Prefs:${keyValue}:putBoolean->true")
-                                patched++
-                            } catch (_: Exception) {}
-                        }
-                        isPutString -> {
-                            val valueReg: Int? = when (insn) {
-                                is com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction35c -> insn.registerE
-                                is com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction3rc -> insn.startRegister + 2
-                                else -> null
-                            }
-                            if (valueReg == null) continue
-                            try {
-                                // for sku_cache_price_premium, put a fake price
-                                val fakePrice = if (keyValue!!.contains("price")) "9.99" else "premium"
-                                if (valueReg <= 0xff) {
-                                    mm.addInstructions(index, "const-string v$valueReg, \"$fakePrice\"")
-                                } else {
-                                    mm.addInstructions(index, "const-string v0, \"$fakePrice\"\nmove-object v$valueReg, v0")
-                                }
-                                patchedMethods.add("Prefs:${keyValue}:putString")
-                                patched++
-                            } catch (_: Exception) {}
-                        }
-                    }
-                }
-            }
-        }
-
-        if (patched > 0) {
-            logger.info("Unlock Premium: patched $patched check(s)")
-            logger.info("Patched methods: ${patchedMethods.sorted().joinToString(", ")}")
-        } else {
-            logger.warning("No premium/ownership checks found. No changes applied.")
         }
     }
 }
