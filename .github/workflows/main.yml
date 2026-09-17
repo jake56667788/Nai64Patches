@@ -17,8 +17,8 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Build with Gradle
-        run: ./gradlew build --no-daemon
+      - name: Build Patches
+        run: ./gradlew :patches:build --no-daemon
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
@@ -27,5 +27,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: patch-bundle
-          path: "**/build/**/*.jar"
+          path: patches/build/libs/*.jar
           
