@@ -1,38 +1,21 @@
-group = "io.github.nai64"
-
-patches {
-    about {
-        name = "Nai's Patches"
-        description = "Universal game patches for the Morphe framework"
-        source = "https://github.com/Nai64/Nai64Patches"
-        author = "Nai64"
-        contact = ""
-        website = ""
-        license = "GPLv3"
-    }
+plugins {
+    kotlin("jvm") version "1.9.22"
+    id("app.morphe.patches") version "1.3.4"
 }
 
-val patchListGeneratorClasspath: Configuration by configurations.creating
+group = "com.github.jake56667788"
+version = "1.0.0"
 
-dependencies {
-    compileOnly(libs.gson)
-    patchListGeneratorClasspath(libs.gson)
+repositories {
+    mavenCentral()
+    google()
+    maven("https://jitpack.io")
+    maven("https://maven.pkg.github.com/MorpheApp/registry") {
+        credentials {
+            username = System.getenv("GITHUB_ACTOR") ?: "token"
+            password = System.getenv("GITHUB_TOKEN") ?: ""
+        }
+    }
 }
-
-tasks {
-    // Ensure the Android DEX is built when building the MPP.
-    // Without buildAndroid, the MPP only contains JVM .class files,
-    // which the Morphe Android app cannot load (Android uses DEX format).
-    build { dependsOn("buildAndroid") }
-
-    register<JavaExec>("generatePatchesList") {
-        description = "Build patch with patch list"
-        dependsOn(build)
-        classpath = sourceSets["main"].runtimeClasspath + patchListGeneratorClasspath
-        mainClass.set("util.PatchListGeneratorKt")
-    }
-
-    publish {
-        dependsOn("generatePatchesList")
-    }
+}
 }
