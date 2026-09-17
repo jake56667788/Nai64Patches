@@ -2,30 +2,29 @@ name: Build Patches
 
 on:
   push:
-    branches: [ main, master ]
+  pull_request:
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Set up JDK
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
+          distribution: temurin
           java-version: '17'
-          distribution: 'temurin'
 
-      - name: Build Patches
+      - name: Build patches
         run: ./gradlew :patches:build --no-daemon
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_ACTOR: ${{ github.actor }}
 
-      - name: Upload Artifact
+      - name: Upload patches
         uses: actions/upload-artifact@v4
         with:
-          name: patch-bundle
-          path: patches/build/libs/*.jar
-          
+          name: Nai64Patches
+          path: patches/build/libs/*.mpp
+          if-no-files-found: error
