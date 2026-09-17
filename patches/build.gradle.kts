@@ -17,3 +17,11 @@ repositories {
         }
     }
 }
+
+tasks.withType<Jar>().configureEach {
+    manifest {
+        attributes(
+            "Name" to project.name
+        )
+    }
+}
