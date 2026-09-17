@@ -17,11 +17,8 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: List Tasks
-        run: ./gradlew tasks --all
-
       - name: Build with Gradle
-        run: ./gradlew jar --no-daemon
+        run: ./gradlew build --no-daemon
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
