@@ -39,14 +39,14 @@ val unlockPremiumPatch = bytecodePatch(
             "premium", "is_premium", "ispremium", "premium_unlocked", "premium_status", "premium_expiry", "premiumaccess", "haspremiumaccess",
             "vip", "is_vip", "vip_status", "vip_level", "vip_expiry",
             "no_ads", "noads", "ads_removed", "adsremoved", "ad_free", "adfree", "remove_ads", "removeads",
-            "full_version", "fullversion", "unlocked",
+            "full_version", "fullversion", "unlocked", "isSuspended",
             "subscribed", "is_subscribed", "subscription_active", "subscription_expires", "has_subscription", "has_active_purchase",
             "lifetime", "is_lifetime", "annual", "monthly", "trial",
             "entitlement", "entitlements", "is_entitled", "has_entitlement",
             "paid", "is_paid", "member", "pro_version", "is_pro", "pro_member",
             "subscription_expiry", "premium_expiry", "key_subs", "key_sub", "subs"
         )
-        fun isPremiumKey(lower: String): Boolean {
+        isSuspendedfun isPremiumKey(lower: String): Boolean {
             if (extraSet.any { it.isNotEmpty() && lower == it }) return true
             // "ignore/disregard X" flags mean "disregard the premium state":
             // forcing those true inverts them (locks instead of unlocking)
