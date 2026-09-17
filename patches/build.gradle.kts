@@ -5,5 +5,10 @@ patches {
     about {
         name = "Nai64 Patches"
         description = "Custom patches for Nai64"
+        source = "https://github.com/jake56667788/Nai64Patches"
+        author = "jake56667788"
+        contact = "https://github.com/jake56667788"
+        website = "https://github.com/jake56667788/Nai64Patches"
+        license = "GPL-3.0"
     }
 }
