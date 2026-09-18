@@ -120,7 +120,8 @@ val unlockPremiumPatch = bytecodePatch(
                         !t.contains("okhttp") && !t.contains("ssl") && !t.contains("network") && (t.contains("premium") || t.contains("purchase") || t.contains("billing") || t.contains("subscription") || t.contains("user") || t.contains("entitle") || t.contains("vip") || t.contains("pro"))
                     } else null
                 ), checkName
-            ) { it.addInstructions(0, "const/4 v0, 0x1\nreturn v0") }
+            ) { it.addInstructions(0, "const/4 v0, 0x1
+return v0") }
         }
 
         for (negName in listOf("isExpired", "isCancelled", "isTrialExpired", "isLocked", "isPremiumLocked", "isContentLocked", "isHardPaywall", "isSuspended", "isPremiumSuspended")) {
@@ -128,7 +129,8 @@ val unlockPremiumPatch = bytecodePatch(
                 val t = c.type.lowercase()
                 t.contains("premium") || t.contains("subscription") || t.contains("entitle") || t.contains("vip") || t.contains("billing") || t.contains("purchase") || t.contains("content") || t.contains("station") || t.contains("paywall")
             }), negName) {
-                it.addInstructions(0, "const/4 v0, 0x0\nreturn v0")
+                it.addInstructions(0, "const/4 v0, 0x0
+return v0")
             }
         }
 
@@ -140,13 +142,15 @@ val unlockPremiumPatch = bytecodePatch(
                 val t = c.type.lowercase()
                 t.contains("paywall") || t.contains("billing") || t.contains("purchase") || t.contains("subscription") || t.contains("offer") || t.contains("product")
             }), optName) {
-                it.addInstructions(0, "const/4 v0, 0x1\nreturn v0")
+                it.addInstructions(0, "const/4 v0, 0x1
+return v0")
             }
         }
 
         for (intName in listOf("getPremiumState", "getVipLevel", "getSubscriptionStatus", "getProState", "getVipStatus", "getUserType", "getPremiumStatusInt", "getEntitlementState")) {
             patchAll(Fingerprint(name = intName, returnType = "I"), intName) {
-                it.addInstructions(0, "const/4 v0, 0x1\nreturn v0")
+                it.addInstructions(0, "const/4 v0, 0x1
+return v0")
             }
         }
 
@@ -155,30 +159,38 @@ val unlockPremiumPatch = bytecodePatch(
                 val t = c.type.lowercase()
                 t.contains("premium") || t.contains("subscription") || t.contains("entitle") || t.contains("vip") || t.contains("billing") || t.contains("purchase") || t.contains("pro")
             }), longName) {
-                it.addInstructions(0, "const-wide v0, 0x17d2d0c0000L\nreturn-wide v0")
+                it.addInstructions(0, "const-wide v0, 0x17d2d0c0000L
+return-wide v0")
             }
         }
 
         for (listName in listOf("getEntitlements", "getActivePurchases", "getActiveEntitlements")) {
             patchAll(Fingerprint(name = listName, custom = { m, _ -> m.returnType.contains("List") || m.returnType.contains("Collection") }), listName) {
-                it.addInstructions(0, "const-string v0, \"premium\"\ninvoke-static {v0}, Ljava/util/Collections;->singletonList(Ljava/lang/Object;)Ljava/util/List;\nmove-result-object v0\nreturn-object v0")
+                it.addInstructions(0, "const-string v0, "premium"
+invoke-static {v0}, Ljava/util/Collections;->singletonList(Ljava/lang/Object;)Ljava/util/List;
+move-result-object v0
+return-object v0")
             }
         }
 
         for (strName in listOf("getPremiumStatus", "getVipStatus", "getSubscriptionStatus", "getUserTypeString")) {
             patchAll(Fingerprint(name = strName, returnType = "Ljava/lang/String;"), strName) {
-                it.addInstructions(0, "const-string v0, \"premium\"\nreturn-object v0")
+                it.addInstructions(0, "const-string v0, "premium"
+return-object v0")
             }
         }
 
         for (receiptName in listOf("hasReceipt", "getHasReceipt", "hasValidReceipt", "isReceiptValid", "hasActiveReceipt", "getReceipt")) {
             patchAll(Fingerprint(name = receiptName, returnType = "Z"), receiptName) {
-                it.addInstructions(0, "const/4 v0, 0x1\nreturn v0")
+                it.addInstructions(0, "const/4 v0, 0x1
+return v0")
             }
         }
+
         for (receiptName in listOf("hasReceipt", "getHasReceipt", "getReceipt")) {
             patchAll(Fingerprint(name = receiptName, returnType = "Ljava/lang/String;"), "$receiptName:String") {
-                it.addInstructions(0, "const-string v0, \"fake_receipt_data\"\nreturn-object v0")
+                it.addInstructions(0, "const-string v0, "fake_receipt_data"
+return-object v0")
             }
         }
 
@@ -213,6 +225,10 @@ val unlockPremiumPatch = bytecodePatch(
         // 1c) React Native AsyncStorage (SQLite RKStorage backend).
         // Single-key reads of premium flags resolve "1", everything else
         // falls through to the original implementation untouched.
+        //
+        // IS_PREMIUM_SUSPENDED_KEY is explicitly excluded: it describes a
+        // suspension state, not an entitlement. Leaving it untouched avoids
+        // an accidental read-side premium-state override.
         // ──────────────────────────────────────────────
 
         patchAll(
@@ -226,7 +242,8 @@ val unlockPremiumPatch = bytecodePatch(
             val checks = listOf(
                 "subscribed", "subscription", "premium", "entitlement", "lifetime",
                 "unlocked", "remove_ads", "no_ads", "ad_free", "adfree"
-            ).joinToString("\n") { token ->
+            ).joinToString("
+") { token ->
                 """
                 const-string v2, "$token"
                 invoke-virtual {v1, v2}, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z
@@ -234,6 +251,7 @@ val unlockPremiumPatch = bytecodePatch(
                 if-nez v2, :morphe_async_hit
                 """.trimIndent()
             }
+
             it.addInstructions(0, """
                 move-object/from16 v5, p1
                 invoke-interface {v5}, Lcom/facebook/react/bridge/ReadableArray;->size()I
@@ -246,8 +264,15 @@ val unlockPremiumPatch = bytecodePatch(
                 if-eqz v1, :morphe_async_orig
                 invoke-virtual {v1}, Ljava/lang/String;->toLowerCase()Ljava/lang/String;
                 move-result-object v1
+
+                const-string v2, "is_premium_suspended_key"
+                invoke-virtual {v1, v2}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
+                move-result v2
+                if-nez v2, :morphe_async_orig
+
                 $checks
                 goto :morphe_async_orig
+
                 :morphe_async_hit
                 invoke-static {}, Lcom/facebook/react/bridge/Arguments;->createArray()Lcom/facebook/react/bridge/WritableArray;
                 move-result-object v2
@@ -260,7 +285,7 @@ val unlockPremiumPatch = bytecodePatch(
                 const-string v4, "1"
                 invoke-interface {v3, v4}, Lcom/facebook/react/bridge/WritableArray;->pushString(Ljava/lang/String;)V
                 invoke-interface {v2, v3}, Lcom/facebook/react/bridge/WritableArray;->pushArray(Lcom/facebook/react/bridge/ReadableArray;)V
-                const/4 v3, 0{2}
+                const/4 v3, 0x2
                 new-array v3, v3, [Ljava/lang/Object;
                 const/4 v4, 0x0
                 const/4 v5, 0x0
@@ -270,6 +295,7 @@ val unlockPremiumPatch = bytecodePatch(
                 move-object/from16 v2, p2
                 invoke-interface {v2, v3}, Lcom/facebook/react/bridge/Callback;->invoke([Ljava/lang/Object;)V
                 return-void
+
                 :morphe_async_orig
             """.trimIndent())
         }
@@ -285,23 +311,38 @@ val unlockPremiumPatch = bytecodePatch(
                 returnType = "Z",
                 custom = { m, _ -> m.parameterTypes.isEmpty() }
             ), "RC:isActive"
-        ) { it.addInstructions(0, "const/4 v0, 0x1\nreturn v0") }
+        ) {
+            it.addInstructions(0, "const/4 v0, 0x1
+return v0")
+        }
 
         classDefForEach { classDef ->
             val tl = classDef.type.lowercase()
             if (!tl.contains("revenuecat") && !tl.contains("purchases")) return@classDefForEach
             if (tl.contains("okhttp") || tl.contains("ssl")) return@classDefForEach
             val mutableClass by lazy { try { mutableClassDefBy(classDef) } catch (_: Exception) { null } }
+
             for (method in classDef.methods) {
                 if (method.returnType != "Z") continue
                 val n = method.name.lowercase()
                 if (n.contains("provider") || n.contains("product") || n.contains("progress")) continue
-                val isEntitlementCheck = n.contains("isactive") || n.contains("isentitled") || n.contains("hasactive") || n.contains("ispremium") || n.contains("haspremium") || n == "isactive" || n == "isentitled"
+
+                val isEntitlementCheck =
+                    n.contains("isactive") ||
+                        n.contains("isentitled") ||
+                        n.contains("hasactive") ||
+                        n.contains("ispremium") ||
+                        n.contains("haspremium") ||
+                        n == "isactive" ||
+                        n == "isentitled"
+
                 if (!isEntitlementCheck) continue
+
                 try {
                     if (method.implementation == null) continue
                     val mc = mutableClass ?: continue
-                    mc.findMutableMethodOf(method).addInstructions(0, "const/4 v0, 0x1\nreturn v0")
+                    mc.findMutableMethodOf(method).addInstructions(0, "const/4 v0, 0x1
+return v0")
                     patched++
                     patchedMethods.add("RC:${method.name}")
                 } catch (_: Exception) {}
@@ -312,14 +353,17 @@ val unlockPremiumPatch = bytecodePatch(
             val tl = classDef.type.lowercase()
             if (!tl.contains("revenuecat") || !tl.contains("verification")) return@classDefForEach
             val mutableClass by lazy { try { mutableClassDefBy(classDef) } catch (_: Exception) { null } }
+
             for (method in classDef.methods) {
                 if (method.returnType != "Z") continue
                 val n = method.name.lowercase()
+
                 if (n.contains("verify") || n.contains("enforced") || n.contains("informational")) {
                     try {
                         if (method.implementation == null) continue
                         val mc = mutableClass ?: continue
-                        mc.findMutableMethodOf(method).addInstructions(0, "const/4 v0, 0x1\nreturn v0")
+                        mc.findMutableMethodOf(method).addInstructions(0, "const/4 v0, 0x1
+return v0")
                         patched++
                         patchedMethods.add("RC:verify:${method.name}")
                     } catch (_: Exception) {}
@@ -327,4 +371,4 @@ val unlockPremiumPatch = bytecodePatch(
             }
         }
     }
-}
+                                                                       }
