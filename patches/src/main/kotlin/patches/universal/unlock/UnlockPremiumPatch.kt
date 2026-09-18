@@ -300,18 +300,18 @@ val unlockPremiumPatch = bytecodePatch(
                             val t = c.type.lowercase()
 
                             !t.contains("okhttp") &&
-                            !t.contains("ssl") &&
-                            !t.contains("network") &&
-                            (
-                                t.contains("premium") ||
-                                t.contains("purchase") ||
-                                t.contains("billing") ||
-                                t.contains("subscription") ||
-                                t.contains("user") ||
-                                t.contains("entitle") ||
-                                t.contains("vip") ||
-                                t.contains("pro")
-                            )
+                                !t.contains("ssl") &&
+                                !t.contains("network") &&
+                                (
+                                    t.contains("premium") ||
+                                        t.contains("purchase") ||
+                                        t.contains("billing") ||
+                                        t.contains("subscription") ||
+                                        t.contains("user") ||
+                                        t.contains("entitle") ||
+                                        t.contains("vip") ||
+                                        t.contains("pro")
+                                    )
                         }
                     } else {
                         null
@@ -332,12 +332,7 @@ val unlockPremiumPatch = bytecodePatch(
         /*
          * 2) Negative premium checks
          *
-         * IMPORTANT:
-         *
-         * isSuspended and isPremiumSuspended are intentionally NOT included.
-         *
-         * This prevents Unlock Premium from directly rewriting suspension
-         * state.
+         * isSuspended and isPremiumSuspended remain intentionally omitted.
          */
         for (negName in listOf(
             "isExpired",
@@ -356,14 +351,14 @@ val unlockPremiumPatch = bytecodePatch(
                         val t = c.type.lowercase()
 
                         t.contains("premium") ||
-                        t.contains("subscription") ||
-                        t.contains("entitle") ||
-                        t.contains("vip") ||
-                        t.contains("billing") ||
-                        t.contains("purchase") ||
-                        t.contains("content") ||
-                        t.contains("station") ||
-                        t.contains("paywall")
+                            t.contains("subscription") ||
+                            t.contains("entitle") ||
+                            t.contains("vip") ||
+                            t.contains("billing") ||
+                            t.contains("purchase") ||
+                            t.contains("content") ||
+                            t.contains("station") ||
+                            t.contains("paywall")
                     }
                 ),
                 negName
@@ -475,7 +470,7 @@ val unlockPremiumPatch = bytecodePatch(
                 ),
                 listName
             ) {
-                // Collection-specific handling remains intentionally limited.
+                // Existing receipt/list handling remains unchanged.
             }
         }
 
@@ -559,7 +554,7 @@ val unlockPremiumPatch = bytecodePatch(
                 ),
                 "RN:$bridgeName"
             ) {
-                // Existing RN billing handling remains unchanged.
+                // Existing React Native billing handling remains unchanged.
             }
         }
 
@@ -568,8 +563,7 @@ val unlockPremiumPatch = bytecodePatch(
          */
         patchAll(
             Fingerprint(
-                definingClass =
-                    "Lcom/facebook/react/modules/storage/AsyncStorageModule;",
+                definingClass = "Lcom/facebook/react/modules/storage/AsyncStorageModule;",
                 name = "multiGet",
                 returnType = "V",
                 custom = { _, c ->
@@ -586,8 +580,7 @@ val unlockPremiumPatch = bytecodePatch(
          */
         patchAll(
             Fingerprint(
-                definingClass =
-                    "Lcom/revenuecat/purchases/EntitlementInfo;",
+                definingClass = "Lcom/revenuecat/purchases/EntitlementInfo;",
                 name = "isActive",
                 returnType = "Z",
                 custom = { _, c ->
@@ -607,9 +600,12 @@ val unlockPremiumPatch = bytecodePatch(
 
         /*
          * 13) RevenueCat dynamic handling
+         *
+         * FIX: explicit lambda parameter. `classDef` exposes `type`;
+         * `this` in the previous version did not.
          */
-        classDefForEach {
-            val className = this.type.lowercase()
+        classDefForEach { classDef ->
+            val className = classDef.type.lowercase()
 
             if (
                 className.contains("revenuecat") ||
@@ -621,9 +617,12 @@ val unlockPremiumPatch = bytecodePatch(
 
         /*
          * 14) RevenueCat verification handling
+         *
+         * FIX: explicit lambda parameter. `classDef` exposes `type`;
+         * `this` in the previous version did not.
          */
-        classDefForEach {
-            val className = this.type.lowercase()
+        classDefForEach { classDef ->
+            val className = classDef.type.lowercase()
 
             if (
                 className.contains("revenuecat") ||
@@ -633,9 +632,7 @@ val unlockPremiumPatch = bytecodePatch(
             }
         }
 
-        logger.info(
-            "Unlock Premium: patched $patched check(s)"
-        )
+        logger.info("Unlock Premium: patched $patched check(s)")
 
         if (patchedMethods.isNotEmpty()) {
             logger.info(
